@@ -4,7 +4,15 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from . import models, schemas
-from .database import engine, get_db
+from .database import engine, get_db, SessionLocal
+
+# --- CONFIGURATION: Your Hardcoded Admin ---
+ADMIN_CONFIG = {
+    "userId": "Naishadh Bhavsar",  # The permanent User ID (Exact match required)
+    "country": "Naishadh Bhavsar", # Display Name
+    "role": "chair"                # Must be 'chair'
+}
+# -----------------------------------------------------
 
 # Create DB Tables automatically on startup
 models.Base.metadata.create_all(bind=engine)
@@ -14,7 +22,7 @@ app = FastAPI()
 # Enable CORS for React Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your Render Frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,7 +30,6 @@ app.add_middleware(
 
 # --- Helper to get the single active session ---
 def get_or_create_session_model(db: Session):
-    # We assume 1 global session for this app.
     session_model = db.query(models.SessionState).first()
     if not session_model:
         session_model = models.SessionState()
@@ -31,13 +38,52 @@ def get_or_create_session_model(db: Session):
         db.refresh(session_model)
     return session_model
 
+# --- NEW FUNCTION: Seed the Admin User on Startup ---
+def seed_admin_user():
+    db = SessionLocal()
+    try:
+        session_model = get_or_create_session_model(db)
+        
+        # Check if our hardcoded admin already exists
+        admin = db.query(models.Delegate).filter(models.Delegate.user_id == ADMIN_CONFIG["userId"]).first()
+        
+        if not admin:
+            print(f"⚡ Seeding Admin User: {ADMIN_CONFIG['userId']}")
+            # Create the Admin Delegate
+            admin = models.Delegate(
+                user_id=ADMIN_CONFIG["userId"],
+                session_id=session_model.id,
+                country=ADMIN_CONFIG["country"],
+                role=ADMIN_CONFIG["role"]
+            )
+            db.add(admin)
+            
+            # Force this user to be the Chair in the Session State
+            session_model.chair_user_id = ADMIN_CONFIG["userId"]
+            db.commit()
+            print("✅ Admin created and assigned as Chair.")
+        else:
+            # Ensure they hold the Chair title even if DB restarted
+            if session_model.chair_user_id != ADMIN_CONFIG["userId"]:
+                session_model.chair_user_id = ADMIN_CONFIG["userId"]
+                db.commit()
+                print("🔄 Restored Hardcoded Admin as Chair.")
+                
+    except Exception as e:
+        print(f"❌ Error seeding admin: {e}")
+    finally:
+        db.close()
+
+# Run the seed function immediately on startup
+seed_admin_user()
+
+
 # --- ROUTES ---
 
 @app.get("/session/current", response_model=schemas.SessionFullResponse)
 def get_session(db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
     
-    # Transform Delegates List -> Dict for Frontend
     delegates_dict = {}
     for d in db_session.delegates:
         delegates_dict[d.user_id] = schemas.DelegateResponse.model_validate(d)
@@ -56,7 +102,6 @@ def get_session(db: Session = Depends(get_db)):
 def join_session(data: schemas.JoinSessionRequest, db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
     
-    # Check if user exists
     existing_delegate = db.query(models.Delegate).filter(models.Delegate.user_id == data.userId).first()
     
     if existing_delegate:
@@ -71,7 +116,6 @@ def join_session(data: schemas.JoinSessionRequest, db: Session = Depends(get_db)
         )
         db.add(new_delegate)
         
-    # If joining as chair, update session
     if data.role == 'chair':
         db_session.chair_user_id = data.userId
         
@@ -93,7 +137,6 @@ def update_session(data: schemas.UpdateSessionRequest, db: Session = Depends(get
 @app.patch("/session/speakers")
 def update_speakers(data: schemas.SpeakersListUpdate, db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
-    # Direct replacement of JSON list
     db_session.speakers_list = data.list
     db.commit()
     return {"status": "speakers updated"}
@@ -113,8 +156,6 @@ def send_message(data: schemas.ChatMessageCreate, db: Session = Depends(get_db))
     db.commit()
     return {"status": "sent"}
 
-# --- Voting Logic ---
-
 @app.post("/session/vote/start")
 def start_vote(data: schemas.VoteStartRequest, db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
@@ -126,7 +167,7 @@ def start_vote(data: schemas.VoteStartRequest, db: Session = Depends(get_db)):
         "options": data.options,
         "results": {opt: 0 for opt in data.options},
         "totalVotes": 0,
-        "voters": [] # Track who voted to prevent doubles
+        "voters": []
     }
     
     db_session.vote_data = vote_data
@@ -137,7 +178,7 @@ def start_vote(data: schemas.VoteStartRequest, db: Session = Depends(get_db)):
 @app.post("/session/vote/cast")
 def cast_vote(data: schemas.CastVoteRequest, db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
-    current_vote = dict(db_session.vote_data) # Copy to mutate
+    current_vote = dict(db_session.vote_data)
     
     if not current_vote.get("active"):
         raise HTTPException(status_code=400, detail="No active vote")
@@ -145,14 +186,11 @@ def cast_vote(data: schemas.CastVoteRequest, db: Session = Depends(get_db)):
     if data.userId in current_vote.get("voters", []):
          raise HTTPException(status_code=400, detail="Already voted")
 
-    # Update logic
     current_vote["voters"].append(data.userId)
     current_vote["results"][data.vote] = current_vote["results"].get(data.vote, 0) + 1
     current_vote["totalVotes"] += 1
     
-    # Save back to DB
     db_session.vote_data = current_vote
-    # Force SQLAlchemy to detect change in JSON
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(db_session, "vote_data")
     
@@ -166,7 +204,7 @@ def end_vote(db: Session = Depends(get_db)):
     current_vote["active"] = False
     
     db_session.vote_data = current_vote
-    db_session.state = "idle" # Return to idle or debating
+    db_session.state = "idle"
     
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(db_session, "vote_data")
