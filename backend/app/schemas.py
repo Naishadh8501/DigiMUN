@@ -16,16 +16,31 @@ class UpdateSessionRequest(BaseModel):
 
 class SpeakersListUpdate(BaseModel):
     list: List[Dict[str, Any]]
+    action: Optional[str] = None 
 
 class ChatMessageCreate(BaseModel):
     userId: str
     country: str
     message: str
-    isMotion: bool = False
+    type: str = "chat" 
+
+class ChitCreate(BaseModel):
+    fromUserId: str
+    toUserId: str
+    fromCountry: str
+    toCountry: str
+    message: str
+    # --- NEW FIELDS ---
+    isViaEb: bool = False
+    tag: str = "General"
+
+class MarkDelegateRequest(BaseModel):
+    userId: str
+    score: int
 
 class VoteStartRequest(BaseModel):
     topic: str
-    type: str # 'procedural' or 'substantive'
+    type: str 
     options: List[str]
 
 class CastVoteRequest(BaseModel):
@@ -35,7 +50,6 @@ class CastVoteRequest(BaseModel):
 # --- Outgoing Response Models ---
 
 class DelegateResponse(BaseModel):
-    # Fix: Map 'user_id' from DB to 'userId' for Frontend
     userId: str = Field(validation_alias="user_id")
     country: str
     role: str
@@ -46,26 +60,40 @@ class DelegateResponse(BaseModel):
 
 class ChatResponse(BaseModel):
     id: int
-    # Fix: Map 'user_id' from DB to 'userId'
     userId: str = Field(validation_alias="user_id")
     country: str
     message: str
-    # Fix: Map 'is_motion' from DB to 'isMotion'
-    isMotion: bool = Field(validation_alias="is_motion")
+    type: str
     timestamp: datetime
 
     class Config:
         from_attributes = True
 
-# The Big Object the Frontend polls
+class ChitResponse(BaseModel):
+    id: int
+    fromUserId: str = Field(validation_alias="from_user_id")
+    toUserId: str = Field(validation_alias="to_user_id")
+    fromCountry: str = Field(validation_alias="from_country")
+    toCountry: str = Field(validation_alias="to_country")
+    message: str
+    # --- NEW FIELDS ---
+    isViaEb: bool = Field(validation_alias="is_via_eb")
+    tag: str
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
 class SessionFullResponse(BaseModel):
     state: str
-    chairUserId: Optional[str]
-    sessionConfig: Dict[str, Any]
-    speakersList: List[Dict[str, Any]]
-    voteData: Dict[str, Any]
-    delegates: Dict[str, DelegateResponse] # Map userId -> Delegate Data
-    chatLog: List[ChatResponse]
+    chairUserId: Optional[str] = Field(validation_alias="chair_user_id")
+    currentSpeechStart: Optional[datetime] = Field(validation_alias="current_speech_start")
+    sessionConfig: Dict[str, Any] = Field(validation_alias="session_config")
+    speakersList: List[Dict[str, Any]] = Field(validation_alias="speakers_list")
+    voteData: Dict[str, Any] = Field(validation_alias="vote_data")
+    delegates: Dict[str, DelegateResponse]
+    chatLog: List[ChatResponse] = Field(validation_alias="chats")
+    chits: List[ChitResponse]
 
     class Config:
         from_attributes = True
