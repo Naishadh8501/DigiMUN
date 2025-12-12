@@ -14,6 +14,12 @@ ADMIN_CONFIG = {
     "role": "chair"
 }
 
+# !!! CRITICAL RESET LINE !!!
+# This deletes all existing tables to fix the "UndefinedColumn" error.
+# You will remove this line after the next deployment.
+models.Base.metadata.drop_all(bind=engine) 
+# ---------------------------
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -138,7 +144,6 @@ def send_chit(data: schemas.ChitCreate, db: Session = Depends(get_db)):
         from_country=data.fromCountry,
         to_country=data.toCountry,
         message=data.message,
-        # --- NEW FIELDS ---
         is_via_eb=data.isViaEb,
         tag=data.tag
     )
