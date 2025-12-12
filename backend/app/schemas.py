@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -35,7 +35,8 @@ class CastVoteRequest(BaseModel):
 # --- Outgoing Response Models ---
 
 class DelegateResponse(BaseModel):
-    userId: str
+    # Fix: Map 'user_id' from DB to 'userId' for Frontend
+    userId: str = Field(validation_alias="user_id")
     country: str
     role: str
     score: int
@@ -45,10 +46,12 @@ class DelegateResponse(BaseModel):
 
 class ChatResponse(BaseModel):
     id: int
-    userId: str
+    # Fix: Map 'user_id' from DB to 'userId'
+    userId: str = Field(validation_alias="user_id")
     country: str
     message: str
-    isMotion: bool
+    # Fix: Map 'is_motion' from DB to 'isMotion'
+    isMotion: bool = Field(validation_alias="is_motion")
     timestamp: datetime
 
     class Config:
