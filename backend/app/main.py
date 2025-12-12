@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from datetime import datetime
 
 from . import models, schemas
@@ -14,12 +14,7 @@ ADMIN_CONFIG = {
     "role": "chair"
 }
 
-# !!! CRITICAL RESET LINE !!!
-# This deletes all existing tables to fix the "UndefinedColumn" error.
-# You will remove this line after the next deployment.
-models.Base.metadata.drop_all(bind=engine) 
-# ---------------------------
-
+# Ensure tables exist
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -59,6 +54,7 @@ def seed_admin_user():
             session_model.chair_user_id = ADMIN_CONFIG["userId"]
             db.commit()
         else:
+            # Ensure admin keeps chair role if server restarts
             if session_model.chair_user_id != ADMIN_CONFIG["userId"]:
                 session_model.chair_user_id = ADMIN_CONFIG["userId"]
                 db.commit()
@@ -74,7 +70,21 @@ seed_admin_user()
 @app.get("/session/current", response_model=schemas.SessionFullResponse)
 def get_session(db: Session = Depends(get_db)):
     db_session = get_or_create_session_model(db)
-    return db_session 
+    
+    # --- FIX: Convert List to Dict for Frontend ---
+    delegates_dict = {d.user_id: d for d in db_session.delegates}
+    
+    return {
+        "state": db_session.state,
+        "chair_user_id": db_session.chair_user_id,
+        "current_speech_start": db_session.current_speech_start,
+        "session_config": db_session.session_config,
+        "speakers_list": db_session.speakers_list,
+        "vote_data": db_session.vote_data,
+        "delegates": delegates_dict, # Now passing a Dict
+        "chats": db_session.chats,
+        "chits": db_session.chits
+    }
 
 @app.post("/session/join")
 def join_session(data: schemas.JoinSessionRequest, db: Session = Depends(get_db)):
