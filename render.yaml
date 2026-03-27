@@ -1,0 +1,39 @@
+databases:
+  - name: digimun-db
+    databaseName: digimun
+    user: digimun_user
+    plan: free
+
+services:
+  # 1. The FastAPI Backend
+  - type: web
+    name: digimun-backend
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: digimun-db
+          property: connectionString
+      - key: FRONTEND_URL
+        # We will predict your frontend URL here. If Render adds random letters to your URL later, you can update this in the dashboard.
+        value: "https://digimun-frontend.onrender.com"
+
+  # 2. The React Frontend
+  - type: web
+    name: digimun-frontend
+    env: static
+    plan: free
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: "./dist"
+    envVars:
+      - key: VITE_API_URL
+        # We predict your backend URL here. 
+        value: "https://digimun-backend.onrender.com/api"
+    # This rewrite rule is CRITICAL for React Router to work on a static site!
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
